@@ -54,7 +54,6 @@ int xdp_pass(struct xdp_md* ctx) {
 
     return bpf_redirect_peer(*ifindex, 0);
     
-    return XDP_PASS;
 }
 
 
