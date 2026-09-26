@@ -16,10 +16,10 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-const DEFAULT_CIDR = "10.24.0.0/16"
+const DEFAULT_CIDR = "10.244.0.0/16"
 
 // setupVeth creates a veth pair, moves one end into the container namespace,
-// and connects the host end to a local bridge.
+// and the host end remains hanging .
 func setupVeth(netnsPath string, ifName string, bridgeName string) error {
 	// 1. Get a reference to the container's network namespace
 	targetNS, err := ns.GetNS(netnsPath)
@@ -27,12 +27,6 @@ func setupVeth(netnsPath string, ifName string, bridgeName string) error {
 		return fmt.Errorf("failed to open netns %q: %v", netnsPath, err)
 	}
 	defer targetNS.Close()
-
-	// 2. Find the host's bridge interface (e.g., "cni0")
-	br, err := netlink.LinkByName(bridgeName)
-	if err != nil {
-		return fmt.Errorf("failed to find bridge %q: %v", bridgeName, err)
-	}
 
 	hostVethName := "veth-" + os.Getenv("CNI_CONTAINERID")[:8] // Unique host-side name
 
@@ -49,28 +43,23 @@ func setupVeth(netnsPath string, ifName string, bridgeName string) error {
 		return fmt.Errorf("failed to create veth pair: %v", err)
 	}
 
-	// 5. Connect the host-side of the veth to your node's bridge
-	if err := netlink.LinkSetMaster(vethLink, br.(*netlink.Bridge)); err != nil {
-		return fmt.Errorf("failed to connect %s to bridge: %v", hostVethName, err)
-	}
-
-	// Bring the host-side veth interface UP
+	// Bring the host-side veth interface UP (It sits loose in root namespace)
 	if err := netlink.LinkSetUp(vethLink); err != nil {
 		return fmt.Errorf("failed to bring host veth up: %v", err)
 	}
 
-	// 6. Look up the container-side peer interface we just made
+	// 5. Look up the container-side peer interface we just made
 	peerLink, err := netlink.LinkByName(ifName)
 	if err != nil {
 		return fmt.Errorf("failed to find peer veth: %v", err)
 	}
 
-	// 7. Move the container-side peer into the target Pod's network namespace
+	// 6. Move the container-side peer into the target Pod's network namespace
 	if err := netlink.LinkSetNsFd(peerLink, int(targetNS.Fd())); err != nil {
 		return fmt.Errorf("failed to move veth into container netns: %v", err)
 	}
 
-	// 8. Execute code *inside* the container's namespace to finalize configuration
+	// 7. Execute code *inside* the container's namespace to finalize configuration
 	err = targetNS.Do(func(hostNS ns.NetNS) error {
 		// Fetch the interface again, now that we are context-shifted inside the pod ns
 		containerLink, err := netlink.LinkByName(ifName)
@@ -82,12 +71,6 @@ func setupVeth(netnsPath string, ifName string, bridgeName string) error {
 		if err := netlink.LinkSetUp(containerLink); err != nil {
 			return fmt.Errorf("failed to bring container interface up: %v", err)
 		}
-
-		// Optional: Parse and assign an IP address here using netlink.AddrAdd()
-		// For example:
-		// ip, ipNet, _ := net.ParseCIDR("10.244.1.5/24")
-		// addr := &netlink.Addr{IPNet: &net.IPNet{IP: ip, Mask: ipNet.Mask}}
-		// netlink.AddrAdd(containerLink, addr)
 
 		return nil
 	})
@@ -187,8 +170,21 @@ func releaseIP(netnsPath string, ifName string, ipam goipam.Ipamer, ctx context.
 	return nil
 }
 
-func deleteVeth(netnsPath string, ifName string) {
+func deleteVeth(hostVethName string) error {
+	link, err := netlink.LinkByName(hostVethName)
+	if err != nil {
+		// If link not found then it must be deleted
+		return nil
+	}
 
+	// Delete the host-side interface
+	// This single call destroys both sides of the veth pair and cleans up the pod's routes
+	err = netlink.LinkDel(link)
+	if err != nil {
+		return fmt.Errorf("failed to delete host veth %s:  %v", hostVethName, err)
+	}
+
+	return nil
 }
 
 func main() {
