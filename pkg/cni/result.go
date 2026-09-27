@@ -1,17 +1,11 @@
 package cni
 
-type Result struct {
-	CNIVersion string      `json:"cniVersion"`
-	Interfaces []Interface `json:"interfaces,omitempty"`
-}
+import current "github.com/containernetworking/cni/pkg/types/100"
 
-type Interface struct {
-	Name    string `json:"name"`
-	Sandbox string `json:"sandbox,omitempty"`
-}
+// Result and Interface use the official CNI schema, including IPs, routes and DNS.
+type Result = current.Result
+type Interface = current.Interface
 
 func NewResult(version string) *Result {
-	return &Result{
-		CNIVersion: version,
-	}
+	return &Result{CNIVersion: version}
 }

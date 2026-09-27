@@ -22,81 +22,35 @@ func ParseConfig(data []byte) (*NetworkConfig, error) {
 		return nil, fmt.Errorf("invalid CNI configuration: %w", err)
 	}
 
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+// Validate also protects callers that construct configuration directly.
+func (config *NetworkConfig) Validate() error {
+	if config == nil {
+		return errors.New("missing CNI configuration")
+	}
 	if config.CNIVersion == "" {
-		return nil, errors.New("missing cniVersion")
+		return errors.New("missing cniVersion")
 	}
 
 	if config.CNIVersion != SupportedCNIVersion {
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"unsupported CNI version %q",
 			config.CNIVersion,
 		)
 	}
 
 	if config.Name == "" {
-		return nil, errors.New("missing network name")
+		return errors.New("missing network name")
 	}
 
 	if config.Type == "" {
-		return nil, errors.New("missing plugin type")
+		return errors.New("missing plugin type")
 	}
 
-	return &config, nil
-}
-
-type RuntimeEnv struct {
-	Command     string
-	ContainerID string
-	NetNS       string
-	IfName      string
-	CNIPath     string
-	Args        string
-}
-
-func ReadRuntimeEnv(getenv func(string) string) RuntimeEnv {
-	return RuntimeEnv{
-		Command:     getenv("CNI_COMMAND"),
-		ContainerID: getenv("CNI_CONTAINERID"),
-		NetNS:       getenv("CNI_NETNS"),
-		IfName:       getenv("CNI_IFNAME"),
-		CNIPath:      getenv("CNI_PATH"),
-		Args:         getenv("CNI_ARGS"),
-	}
-}
-
-func (env RuntimeEnv) ValidateForAdd() error {
-	if env.Command == "" {
-		return errors.New("missing CNI_COMMAND")
-	}
-
-	if env.ContainerID == "" {
-		return errors.New("missing CNI_CONTAINERID")
-	}
-
-	if env.NetNS == "" {
-		return errors.New("missing CNI_NETNS")
-	}
-
-	if env.IfName == "" {
-		return errors.New("missing CNI_IFNAME")
-	}
-
-	return nil
-}
-
-func (env RuntimeEnv) ValidateForDel() error {
-	if env.Command == "" {
-		return errors.New("missing CNI_COMMAND")
-	}
-
-	if env.ContainerID == "" {
-		return errors.New("missing CNI_CONTAINERID")
-	}
-
-	if env.IfName == "" {
-		return errors.New("missing CNI_IFNAME")
-	}
-
-	// CNI_NETNS is optional for DEL.
 	return nil
 }

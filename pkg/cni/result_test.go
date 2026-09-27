@@ -23,7 +23,7 @@ func TestNewResult(t *testing.T) {
 func TestResultGeneration(t *testing.T) {
 	result := NewResult("1.0.0")
 
-	result.Interfaces = []Interface{
+	result.Interfaces = []*Interface{
 		{
 			Name:    "eth0",
 			Sandbox: "/run/netns/container-123",

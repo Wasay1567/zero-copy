@@ -1,14 +1,16 @@
 package cni
 
 import (
-	"context"
 	"errors"
+	"fmt"
 	"testing"
+
+	"github.com/containernetworking/cni/pkg/skel"
 )
 
-func validDelEnv() RuntimeEnv {
-	return RuntimeEnv{
-		Command:     "DEL",
+func validDelEnv() *skel.CmdArgs {
+	return &skel.CmdArgs{
+		StdinData:   []byte(`{"cniVersion":"1.0.0","name":"zero-copy","type":"zero-copy"}`),
 		ContainerID: "container-123",
 		IfName:      "eth0",
 	}
@@ -19,11 +21,7 @@ func TestDelSuccess(t *testing.T) {
 
 	handler := NewHandler(backend)
 
-	err := handler.Del(
-		context.Background(),
-		validDelEnv(),
-		validConfig(),
-	)
+	err := handler.CmdDel(validDelEnv())
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -38,20 +36,14 @@ func TestDelSuccess(t *testing.T) {
 }
 
 func TestDelIdempotent(t *testing.T) {
-	backend := &mockNetworkBackend{
-		delErr: ErrNotFound,
-	}
+	backend := &mockNetworkBackend{}
 
 	handler := NewHandler(backend)
 
 	env := validDelEnv()
 
 	// First DEL.
-	err := handler.Del(
-		context.Background(),
-		env,
-		validConfig(),
-	)
+	err := handler.CmdDel(env)
 
 	if err != nil {
 		t.Fatalf(
@@ -60,12 +52,11 @@ func TestDelIdempotent(t *testing.T) {
 		)
 	}
 
+	// The first call removed the state; subsequent calls report it absent.
+	backend.delErr = fmt.Errorf("already deleted: %w", ErrNotFound)
+
 	// Second DEL.
-	err = handler.Del(
-		context.Background(),
-		env,
-		validConfig(),
-	)
+	err = handler.CmdDel(env)
 
 	if err != nil {
 		t.Fatalf(
@@ -91,11 +82,7 @@ func TestDelError(t *testing.T) {
 
 	handler := NewHandler(backend)
 
-	err := handler.Del(
-		context.Background(),
-		validDelEnv(),
-		validConfig(),
-	)
+	err := handler.CmdDel(validDelEnv())
 
 	if err == nil {
 		t.Fatal("expected DEL error")
@@ -109,23 +96,19 @@ func TestDelError(t *testing.T) {
 	}
 }
 
-func TestDelDoesNotRequireNetNS(t *testing.T) {
+func TestDelDoesNotRequireNetns(t *testing.T) {
 	backend := &mockNetworkBackend{}
 
 	handler := NewHandler(backend)
 
 	env := validDelEnv()
-	env.NetNS = ""
+	env.Netns = ""
 
-	err := handler.Del(
-		context.Background(),
-		env,
-		validConfig(),
-	)
+	err := handler.CmdDel(env)
 
 	if err != nil {
 		t.Fatalf(
-			"DEL should work without NetNS: %v",
+			"DEL should work without Netns: %v",
 			err,
 		)
 	}
