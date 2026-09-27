@@ -20,7 +20,7 @@ const DEFAULT_CIDR = "10.244.0.0/16"
 
 // setupVeth creates a veth pair, moves one end into the container namespace,
 // and the host end remains hanging .
-func setupVeth(netnsPath string, ifName string, bridgeName string) error {
+func SetupVeth(netnsPath string, ifName string, bridgeName string) error {
 	// 1. Get a reference to the container's network namespace
 	targetNS, err := ns.GetNS(netnsPath)
 	if err != nil {
@@ -82,25 +82,22 @@ func setupVeth(netnsPath string, ifName string, bridgeName string) error {
 	return nil
 }
 
-func allocateIP(netnsPath string, ifName string) error {
-	targetNS, err := ns.Getns(netnsPath)
+func AllocateIP(netnsPath string, ifName string, ipam goipam.Ipamer, ctx context.Context) error {
+	targetNS, err := ns.GetNS(netnsPath)
 	if err != nil {
 		return fmt.Errorf("failed to open netns %q: %v", netnsPath, err)
 	}
 	defer targetNS.Close()
 
-	ctx := context.Background()
-	ipam := goipam.New(ctx)
-
 	// Create a prefix to manage some IPs
 	prefix, err := ipam.NewPrefix(ctx, DEFAULT_CIDR)
 	if err != nil {
-		panic(err) // FIX
+		return fmt.Errorf("failed to create IP prefix: %v", err)
 	}
 
 	ip, err := ipam.AcquireIP(ctx, prefix.Cidr)
 	if err != nil {
-		panic(err) // FIX
+		return fmt.Errorf("failed to acquire IP from IPAM: %v", err)
 	}
 
 	parsedIP := net.ParseIP(ip.IP.String())
@@ -115,7 +112,7 @@ func allocateIP(netnsPath string, ifName string) error {
 		addr := &netlink.Addr{IPNet: &net.IPNet{IP: parsedIP, Mask: net.CIDRMask(16, 32)}}
 		err = netlink.AddrAdd(containerLink, addr)
 		if err != nil {
-			return fmt.Errorf("failed to assign ip address %")
+			return fmt.Errorf("failed to assign ip address %s: %v", parsedIP, err)
 		}
 		return nil
 	})
@@ -127,50 +124,53 @@ func allocateIP(netnsPath string, ifName string) error {
 	return nil
 }
 
-func releaseIP(netnsPath string, ifName string, ipam goipam.Ipamer, ctx context.Context) error {
+func ReleaseIP(netnsPath string, ifName string, ipam goipam.Ipamer, ctx context.Context) error {
 	targetNS, err := ns.GetNS(netnsPath)
 	if err != nil {
 		return fmt.Errorf("failed to open netns %q: %v", netnsPath, err)
 	}
 	defer targetNS.Close()
 
-	nlHandle, err := netlink.NewHandleAt(targetNS)
+	err = targetNS.Do(func(hostNS ns.NetNS) error {
+		// Fetch the interface again, now that we are context-shifted inside the pod ns
+		containerLink, err := netlink.LinkByName(ifName)
+		if err != nil {
+			return fmt.Errorf("failed to find interface inside container: %v", err)
+		}
+
+		addrs, err := netlink.AddrList(containerLink, netlink.FAMILY_V4)
+		if err != nil {
+			return fmt.Errorf("Failed to list addresses: %v", err)
+		}
+		if len(addrs) == 0 {
+			return fmt.Errorf("interface %q has no IPv4 addresses", ifName)
+		}
+
+		address := addrs[0]
+		ip, err := netip.ParseAddr(address.IPNet.IP.String())
+		if err != nil {
+			return fmt.Errorf("failed to parse address %q: %v", address.IPNet.IP, err)
+		}
+
+		if err := netlink.AddrDel(containerLink, &address); err != nil {
+			return fmt.Errorf("failed to remove IP address from container link: %v", err)
+		}
+
+		if _, err := ipam.ReleaseIP(ctx, &goipam.IP{IP: ip, ParentPrefix: DEFAULT_CIDR}); err != nil {
+			return fmt.Errorf("failed to release IP %s from IPAM: %v", ip, err)
+		}	
+
+		return nil
+	})
+
 	if err != nil {
-		return fmt.Errorf("Failed to create netlink handle: %v", err)
-	}
-	defer nlHandle.Delete()
-
-	containerLink, err := nlHandle.LinkByName(ifName)
-	if err != nil {
-		return fmt.Errorf("failed to find interface inside container: %v", err)
-	}
-
-	addrs, err := nlHandle.AddrList(containerLink, netlink.FAMILY_V4)
-	if err != nil {
-		return fmt.Errorf("Failed to list addresses: %v", err)
-	}
-	if len(addrs) == 0 {
-		return fmt.Errorf("interface %q has no IPv4 addresses", ifName)
-	}
-
-	address := addrs[0]
-	ip, err := netip.ParseAddr(address.IPNet.IP.String())
-	if err != nil {
-		return fmt.Errorf("failed to parse address %q: %v", address.IPNet.IP, err)
-	}
-
-	if err := nlHandle.AddrDel(containerLink, &address); err != nil {
-		return fmt.Errorf("failed to remove IP address from container link: %v", err)
-	}
-
-	if _, err := ipam.ReleaseIP(ctx, &goipam.IP{IP: ip, ParentPrefix: DEFAULT_CIDR}); err != nil {
-		return fmt.Errorf("failed to release IP %s from IPAM: %v", ip, err)
+		return fmt.Errorf("failed configuring inside container netns: %v", err)
 	}
 
 	return nil
 }
 
-func deleteVeth(hostVethName string) error {
+func DeleteVeth(hostVethName string) error {
 	link, err := netlink.LinkByName(hostVethName)
 	if err != nil {
 		// If link not found then it must be deleted
@@ -193,7 +193,7 @@ func main() {
 	ifname := os.Getenv("CNI_IFNAME") // Name of the interface to create (usually "eth0")
 	bridge := "cni0"                  // Your single per-node bridge
 
-	if err := setupVeth(netns, ifname, bridge); err != nil {
+	if err := SetupVeth(netns, ifname, bridge); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running custom CNI: %v\n", err)
 		os.Exit(1)
 	}
