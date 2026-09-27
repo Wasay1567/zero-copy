@@ -92,11 +92,12 @@ trap cleanup EXIT INT TERM
 # systems only). Each tool maps to the apt package that provides it.
 # ---------------------------------------------------------------------------
 declare -A REQUIRED_TOOLS=(
-    [clang]="clang"
+    [clang]="clang libbpf-dev"
     [bpftool]="linux-tools-common linux-tools-$(uname -r) linux-tools-generic"
     [ip]="iproute2"
     [ethtool]="ethtool"
     [bridge]="iproute2"
+    [ping]="iputils-ping"
 )
 
 check_prerequisites() {
