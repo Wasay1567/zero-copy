@@ -15,7 +15,9 @@
 # Usage:
 #   sudo ./test-xdp-intra-node-redirect.sh
 #
-# Requirements: root privileges, clang, bpftool, iproute2, ethtool.
+# Requirements: root privileges. Required tools (clang, bpftool, iproute2,
+# ethtool) are checked for automatically and, on apt-based systems, missing
+# ones are installed before the test runs.
 
 set -euo pipefail
 
@@ -84,6 +86,76 @@ cleanup() {
     exit "$exit_code"
 }
 trap cleanup EXIT INT TERM
+
+# ---------------------------------------------------------------------------
+# Step 0: Check prerequisites and install anything missing (apt-based
+# systems only). Each tool maps to the apt package that provides it.
+# ---------------------------------------------------------------------------
+declare -A REQUIRED_TOOLS=(
+    [clang]="clang"
+    [bpftool]="linux-tools-common linux-tools-$(uname -r) linux-tools-generic"
+    [ip]="iproute2"
+    [ethtool]="ethtool"
+    [bridge]="iproute2"
+)
+
+check_prerequisites() {
+    log "Checking prerequisites..."
+
+    if [[ "${EUID}" -ne 0 ]]; then
+        fail "This script must be run as root (or via sudo). Re-run as: sudo $0"
+        exit 1
+    fi
+
+    local missing_tools=()
+    local missing_packages=()
+
+    for tool in "${!REQUIRED_TOOLS[@]}"; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            echo "    [found] ${tool}"
+        else
+            echo "    [missing] ${tool}"
+            missing_tools+=("$tool")
+            # shellcheck disable=SC2206
+            missing_packages+=(${REQUIRED_TOOLS[$tool]})
+        fi
+    done
+
+    if [[ "${#missing_tools[@]}" -eq 0 ]]; then
+        ok "All prerequisites are present."
+        return 0
+    fi
+
+    if ! command -v apt-get >/dev/null 2>&1; then
+        fail "Missing tools (${missing_tools[*]}) and apt-get is not available to auto-install them."
+        fail "Please install these manually for your distro and re-run."
+        exit 1
+    fi
+
+    log "Attempting to install missing packages via apt-get: ${missing_packages[*]}"
+    apt-get update -y
+    # Install packages individually so one unavailable candidate (e.g. a
+    # kernel-specific linux-tools-<version> package) doesn't abort the rest.
+    for pkg in "${missing_packages[@]}"; do
+        apt-get install -y "$pkg" || echo "    [warn] could not install ${pkg}, continuing..."
+    done
+
+    # Re-check after attempting installation.
+    local still_missing=()
+    for tool in "${missing_tools[@]}"; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            still_missing+=("$tool")
+        fi
+    done
+
+    if [[ "${#still_missing[@]}" -gt 0 ]]; then
+        fail "Still missing after install attempt: ${still_missing[*]}"
+        fail "Please install these manually (bpftool commonly needs a matching linux-tools-\$(uname -r) package) and re-run."
+        exit 1
+    fi
+
+    ok "All prerequisites installed."
+}
 
 # ---------------------------------------------------------------------------
 # Step 1: Create namespaces, veth pairs, addresses, and enable GRO
@@ -280,6 +352,7 @@ debug_dump() {
 # Main
 # ---------------------------------------------------------------------------
 main() {
+    check_prerequisites
     setup_namespaces
     compile_bpf
     load_and_attach_bpf
