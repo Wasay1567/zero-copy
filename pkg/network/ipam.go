@@ -13,12 +13,23 @@ import (
 
 type IPAM struct {
 	Ipam goipam.Ipamer
+	DefaultCIDR string
+	Prefix *goipam.Prefix
 }
 
-func NewIPAM(ipam goipam.Ipamer) *IPAM {
+func NewIPAM(ipam goipam.Ipamer, defaultCIDR string) (*IPAM, error) {
+	prefix, err := ipam.PrefixFrom(context.Background(), defaultCIDR)
+	if err != nil {
+		prefix, err = ipam.NewPrefix(context.Background(), defaultCIDR)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create IP prefix: %v", err)
+		}
+	}
 	return &IPAM{
 		Ipam: ipam,
-	}
+		DefaultCIDR: defaultCIDR,
+		Prefix: prefix,
+	}, nil
 }
 
 func (i *IPAM) AllocateIP(netnsPath string, ifName string, ctx context.Context) error {
@@ -28,13 +39,7 @@ func (i *IPAM) AllocateIP(netnsPath string, ifName string, ctx context.Context) 
 	}
 	defer targetNS.Close()
 
-	// Create a prefix to manage some IPs
-	prefix, err := i.Ipam.NewPrefix(ctx, DEFAULT_CIDR)
-	if err != nil {
-		return fmt.Errorf("failed to create IP prefix: %v", err)
-	}
-
-	ip, err := i.Ipam.AcquireIP(ctx, prefix.Cidr)
+	ip, err := i.Ipam.AcquireIP(ctx, i.Prefix.Cidr)
 	if err != nil {
 		return fmt.Errorf("failed to acquire IP from IPAM: %v", err)
 	}
@@ -95,7 +100,7 @@ func (i *IPAM) ReleaseIP(netnsPath string, ifName string, ctx context.Context) e
 			return fmt.Errorf("failed to remove IP address from container link: %v", err)
 		}
 
-		if _, err := i.Ipam.ReleaseIP(ctx, &goipam.IP{IP: ip, ParentPrefix: DEFAULT_CIDR}); err != nil {
+		if _, err := i.Ipam.ReleaseIP(ctx, &goipam.IP{IP: ip, ParentPrefix: i.DefaultCIDR}); err != nil {
 			return fmt.Errorf("failed to release IP %s from IPAM: %v", ip, err)
 		}	
 

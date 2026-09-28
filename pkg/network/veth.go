@@ -5,14 +5,14 @@ package network
 // }
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
+	"github.com/Wasay1567/zero-copy/pkg/helpers"
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/vishvananda/netlink"
 )
-
-const DEFAULT_CIDR = "10.244.0.0/16"
 
 // setupVeth creates a veth pair, moves one end into the container namespace,
 // and the host end remains hanging .
@@ -24,7 +24,10 @@ func SetupVeth(netnsPath string, ifName string, bridgeName string) error {
 	}
 	defer targetNS.Close()
 
-	hostVethName := "veth-" + os.Getenv("CNI_CONTAINERID")[:8] // Unique host-side name
+	hostVethName, err := helpers.BuildNameForHostVeth(os.Getenv("CNI_CONTAINERID"))
+	if err != nil {
+		return fmt.Errorf("failed to build host veth name: %v", err)
+	}
 
 	// 3. Define the veth pair configuration
 	vethLink := &netlink.Veth{
@@ -78,13 +81,13 @@ func SetupVeth(netnsPath string, ifName string, bridgeName string) error {
 	return nil
 }
 
-
-
 func DeleteVeth(hostVethName string) error {
 	link, err := netlink.LinkByName(hostVethName)
-	if err != nil {
+	if errors.Is(err, netlink.LinkNotFoundError{}) {
 		// If link not found then it must be deleted
 		return nil
+	} else if err != nil {
+		return fmt.Errorf("Could not find the host veth link: %v", err)
 	}
 
 	// Delete the host-side interface
@@ -95,17 +98,4 @@ func DeleteVeth(hostVethName string) error {
 	}
 
 	return nil
-}
-
-func main() {
-	// In a real CNI, these values are parsed from Env Variables passed by Kubelet
-	netns := os.Getenv("CNI_NETNS")   // Path to container netns file (e.g., /proc/\$PID/ns/net)
-	ifname := os.Getenv("CNI_IFNAME") // Name of the interface to create (usually "eth0")
-	bridge := "cni0"                  // Your single per-node bridge
-
-	if err := SetupVeth(netns, ifname, bridge); err != nil {
-		fmt.Fprintf(os.Stderr, "Error running custom CNI: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println(`{"cniVersion": "0.4.0", "interfaces": [{"name": "eth0"}]}`)
 }
