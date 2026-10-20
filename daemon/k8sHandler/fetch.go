@@ -1,4 +1,4 @@
-package k8s
+package k8sHandler
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 type plugins struct {
@@ -37,22 +36,9 @@ func fileExists(filename string) bool {
 	return !info.IsDir()
 }
 
-func FetchPodCIDR(nodeName string) (string, error) {
-	// 1. Configure the client using the Pod's internal ServiceAccount token
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		fmt.Printf("failed to create in-cluster config: %v\n", err)
-		os.Exit(1)
-	}
+func FetchPodCIDR(nodeName string, clientset *kubernetes.Clientset) (string, error) {
 
-	// 2. Create the Kubernetes Clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		fmt.Printf("failed to create kubernetes clientset: %v\n", err)
-		os.Exit(1)
-	}
-
-	// 3. Query the specific Node resource from the API Server
+	// 1. Query the specific Node resource from the API Server
 	// Nodes are cluster-scoped, so no namespace is provided
 	node, err := clientset.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
@@ -60,7 +46,7 @@ func FetchPodCIDR(nodeName string) (string, error) {
 		os.Exit(1)
 	}
 
-	// 4. Extract and print the PodCIDR
+	// 2. Extract and print the PodCIDR
 	podCIDR := node.Spec.PodCIDR
 	if podCIDR == "" {
 		fmt.Println("Warning: Spec.PodCIDR is empty. Ensure your cluster CNI uses Kubernetes IPAM.")
