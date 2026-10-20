@@ -8,7 +8,30 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-func AttachGwRoute(netnsPath string, ifName string) error {
+func buildDefaultRoute(linkIndex int, gateway net.IP) (*netlink.Route, error) {
+	if linkIndex <= 0 {
+		return nil, fmt.Errorf("invalid link index %d", linkIndex)
+	}
+	if gateway == nil {
+		return nil, fmt.Errorf("gateway IP is required")
+	}
+	if gateway.To4() == nil {
+		return nil, fmt.Errorf("gateway %q is not an IPv4 address", gateway)
+	}
+
+	_, defaultRoute, err := net.ParseCIDR("0.0.0.0/0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse default route CIDR: %w", err)
+	}
+
+	return &netlink.Route{
+		LinkIndex: linkIndex,
+		Dst:       defaultRoute,
+		Gw:        gateway.To4(),
+	}, nil
+}
+
+func AttachGwRoute(netnsPath string, ifName string, gateway net.IP) error {
 	// 1. Get a reference to the container's network namespace
 	targetNS, err := ns.GetNS(netnsPath)
 	if err != nil {
@@ -22,12 +45,9 @@ func AttachGwRoute(netnsPath string, ifName string) error {
 			return fmt.Errorf("failed to find interface inside container: %v", err)
 		}
 
-		_, defaultgw, _ := net.ParseCIDR("0.0.0.0/0")
-		gwRoute := &netlink.Route{
-			LinkIndex: containerLink.Attrs().Index,
-			Dst:       defaultgw,
-			Gw:        net.ParseIP("10.244.1.0"), // gateway ip for the host 
-			// TODO: NEED TO ASSIGN IP THE HOST LINK
+		gwRoute, err := buildDefaultRoute(containerLink.Attrs().Index, gateway)
+		if err != nil {
+			return err
 		}
 		if err := netlink.RouteAdd(gwRoute); err != nil {
 			return fmt.Errorf("failed to add default route inside pod: %v", err)
@@ -41,4 +61,3 @@ func AttachGwRoute(netnsPath string, ifName string) error {
 
 	return nil
 }
-

@@ -1,22 +1,24 @@
 package network
 
-// func DeleteVeth() {
-
-// }
-
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/Wasay1567/zero-copy/pkg/helpers"
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/vishvananda/netlink"
 )
 
+// isGone reports whether err means "link or netns does not exist".
+func isGone(err error) bool {
+	var lnf netlink.LinkNotFoundError
+	var nsErr ns.NSPathNotExistErr
+	return errors.As(err, &lnf) || errors.As(err, &nsErr)
+}
+
 // setupVeth creates a veth pair, moves one end into the container namespace,
 // and the host end remains hanging .
-func SetupVeth(netnsPath string, ifName string, bridgeName string) error {
+func SetupVeth(netnsPath string, ifName string, containerID string) error {
 	// 1. Get a reference to the container's network namespace
 	targetNS, err := ns.GetNS(netnsPath)
 	if err != nil {
@@ -24,7 +26,7 @@ func SetupVeth(netnsPath string, ifName string, bridgeName string) error {
 	}
 	defer targetNS.Close()
 
-	hostVethName, err := helpers.BuildNameForHostVeth(os.Getenv("CNI_CONTAINERID"))
+	hostVethName, err := helpers.BuildNameForHostVeth(containerID)
 	if err != nil {
 		return fmt.Errorf("failed to build host veth name: %v", err)
 	}
@@ -83,11 +85,15 @@ func SetupVeth(netnsPath string, ifName string, bridgeName string) error {
 
 func DeleteVeth(hostVethName string) error {
 	link, err := netlink.LinkByName(hostVethName)
-	if errors.Is(err, netlink.LinkNotFoundError{}) {
-		// If link not found then it must be deleted
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("Could not find the host veth link: %v", err)
+	if err != nil {
+		if isGone(err) {
+			return nil
+		}
+		return fmt.Errorf("find host veth %q: %w", hostVethName, err)
+	}
+
+	if _, ok := link.(*netlink.Veth); !ok {
+		return fmt.Errorf("refusing to delete %q: not a veth", hostVethName)
 	}
 
 	// Delete the host-side interface
