@@ -52,9 +52,8 @@ int xdp_pass(struct xdp_md* ctx) {
     if (!ifindex)
         return XDP_PASS;
 
-    return bpf_redirect_peer(*ifindex, 0);
+    return bpf_redirect(*ifindex, 0);
     
-    return XDP_PASS;
 }
 
 
