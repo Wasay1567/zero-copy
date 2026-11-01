@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"time"
 
 	"github.com/Wasay1567/zero-copy/daemon/bgpHandler"
 	"github.com/Wasay1567/zero-copy/daemon/k8sHandler"
+	"github.com/Wasay1567/zero-copy/pkg/ebpf"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -16,6 +20,26 @@ import (
 )
 
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
+
+	objectPath := os.Getenv("EBPF_OBJECT")
+	if objectPath == "" {
+		objectPath = "/opt/zero-copy/fast-path.o"
+	}
+	agent, err := ebpf.LoadAgent(objectPath)
+	if err != nil {
+		fmt.Printf("failed to load XDP agent: %v\n", err)
+		os.Exit(1)
+	}
+	defer agent.Close()
+	go func() {
+		if err := agent.Run(ctx); err != nil {
+			fmt.Printf("XDP agent stopped: %v\n", err)
+			cancel()
+		}
+	}()
+
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
 		fmt.Println("Error: NODE_NAME environment variable is not set.")
@@ -48,34 +72,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize new bgp server on port 179
-	g := bgpHandler.InitBgp()
-	if g == nil {
-		os.Exit(1)
+	if os.Getenv("ENABLE_BGP") == "true" {
+		g := bgpHandler.InitBgp()
+		if g == nil {
+			os.Exit(1)
+		}
+		stopper := make(chan struct{})
+		defer close(stopper)
+		factory := informers.NewSharedInformerFactoryWithOptions(clientset, 10*time.Second)
+		nodeInformer := factory.Core().V1().Nodes().Informer()
+		defer runtime.HandleCrash()
+		go factory.Start(stopper)
+		if !cache.WaitForCacheSync(stopper, nodeInformer.HasSynced) {
+			runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
+			return
+		}
+		k8sHandler.NewNodeHandler(g)
 	}
-
-	// stop signal for the informer
-	stopper := make(chan struct{})
-	defer close(stopper)
-
-	// create shared informers for resources in all known API group versions with a reSync period and namespace
-	factory := informers.NewSharedInformerFactoryWithOptions(clientset, 10*time.Second)
-	NodeInformer := factory.Core().V1().Nodes().Informer()
-
-	defer runtime.HandleCrash()
-
-	// start informer ->
-	go factory.Start(stopper)
-
-	// start to sync and call list
-	if !cache.WaitForCacheSync(stopper, NodeInformer.HasSynced) {
-		runtime.HandleError(fmt.Errorf("Timed out waiting for caches to sync"))
-		return
-	}
-
-	k8sHandler.NewNodeHandler(g)
 
 	// block the main go routine from exiting
-	<-stopper
+	<-ctx.Done()
 
 }
