@@ -21,7 +21,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["nodes"]
-    verbs: ["get"]
+    verbs: ["get", "list", "watch"]
 
 ---
 
@@ -56,12 +56,29 @@ spec:
         app: zero-copy-agent
     spec:
       serviceAccountName: zero-copy-daemonset
-      containers:
-      - name: go-app
-        image: Wasay:latest #CHANGE
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      initContainers:
+      - name: mount-bpf
+        image: zero-copy:dev
+        imagePullPolicy: Never
         securityContext:
           runAsUser: 0
-          priveledged: true
+          privileged: true
+        command: ["/bin/sh", "-c"]
+        args:
+        - mountpoint -q /sys/fs/bpf || mount -t bpf bpf /sys/fs/bpf
+        volumeMounts:
+        - name: bpf-fs
+          mountPath: /sys/fs/bpf
+          mountPropagation: Bidirectional
+      containers:
+      - name: go-app
+        image: zero-copy:dev
+        imagePullPolicy: Never
+        securityContext:
+          runAsUser: 0
+          privileged: true
         env:
         # Injects the specific node name this DaemonSet pod lands on
         - name: NODE_NAME
@@ -69,10 +86,29 @@ spec:
             fieldRef:
               fieldPath: spec.nodeName
         volumeMounts:
-          name: cni-config-dir
-          path: /host/etc/cni/net.d
+        - name: cni-config-dir
+          mountPath: /host/etc/cni/net.d
+        - name: cni-bin-dir
+          mountPath: /host/opt/cni/bin
+        - name: cni-state-dir
+          mountPath: /var/lib/cni/zero-copy
+        - name: bpf-fs
+          mountPath: /sys/fs/bpf
+          mountPropagation: Bidirectional
       volumes:
       - name: cni-config-dir
         hostPath:
           path: /etc/cni/net.d
-          type: Directory
+          type: DirectoryOrCreate
+      - name: cni-bin-dir
+        hostPath:
+          path: /opt/cni/bin
+          type: DirectoryOrCreate
+      - name: cni-state-dir
+        hostPath:
+          path: /var/lib/cni/zero-copy
+          type: DirectoryOrCreate
+      - name: bpf-fs
+        hostPath:
+          path: /sys/fs/bpf
+          type: DirectoryOrCreate
