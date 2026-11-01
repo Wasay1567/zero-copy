@@ -243,6 +243,19 @@ func (i *IPAM) ReleaseIP(ctx context.Context, containerID, netnsPath, ifName str
 	return nil
 }
 
+// AllocatedIP returns the persisted address for a container interface.
+func (i *IPAM) AllocatedIP(containerID, ifName string) (net.IP, bool, error) {
+	recPath, err := i.recordPath(containerID, ifName)
+	if err != nil {
+		return nil, false, err
+	}
+	addr, found, err := readRecord(recPath)
+	if err != nil || !found {
+		return nil, found, err
+	}
+	return net.IP(addr.AsSlice()), true, nil
+}
+
 func (i *IPAM) release(ctx context.Context, addr netip.Addr) error {
 	_, err := i.Ipam.ReleaseIP(ctx, &goipam.IP{IP: addr, ParentPrefix: i.Prefix.Cidr})
 	if err != nil && !errors.Is(err, goipam.ErrNotFound) {

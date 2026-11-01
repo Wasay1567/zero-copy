@@ -18,17 +18,17 @@ func isGone(err error) bool {
 
 // setupVeth creates a veth pair, moves one end into the container namespace,
 // and the host end remains hanging .
-func SetupVeth(netnsPath string, ifName string, containerID string) error {
+func SetupVeth(netnsPath string, ifName string, containerID string) (string, error) {
 	// 1. Get a reference to the container's network namespace
 	targetNS, err := ns.GetNS(netnsPath)
 	if err != nil {
-		return fmt.Errorf("failed to open netns %q: %v", netnsPath, err)
+		return "", fmt.Errorf("failed to open netns %q: %v", netnsPath, err)
 	}
 	defer targetNS.Close()
 
 	hostVethName, err := helpers.BuildNameForHostVeth(containerID)
 	if err != nil {
-		return fmt.Errorf("failed to build host veth name: %v", err)
+		return "", fmt.Errorf("failed to build host veth name: %v", err)
 	}
 
 	// 3. Define the veth pair configuration
@@ -41,23 +41,23 @@ func SetupVeth(netnsPath string, ifName string, containerID string) error {
 
 	// 4. Create the veth pair on the host
 	if err := netlink.LinkAdd(vethLink); err != nil {
-		return fmt.Errorf("failed to create veth pair: %v", err)
+		return "", fmt.Errorf("failed to create veth pair: %v", err)
 	}
 
 	// Bring the host-side veth interface UP (It sits loose in root namespace)
 	if err := netlink.LinkSetUp(vethLink); err != nil {
-		return fmt.Errorf("failed to bring host veth up: %v", err)
+		return "", fmt.Errorf("failed to bring host veth up: %v", err)
 	}
 
 	// 5. Look up the container-side peer interface we just made
 	peerLink, err := netlink.LinkByName(ifName)
 	if err != nil {
-		return fmt.Errorf("failed to find peer veth: %v", err)
+		return "", fmt.Errorf("failed to find peer veth: %v", err)
 	}
 
 	// 6. Move the container-side peer into the target Pod's network namespace
 	if err := netlink.LinkSetNsFd(peerLink, int(targetNS.Fd())); err != nil {
-		return fmt.Errorf("failed to move veth into container netns: %v", err)
+		return "", fmt.Errorf("failed to move veth into container netns: %v", err)
 	}
 
 	// 7. Execute code *inside* the container's namespace to finalize configuration
@@ -77,10 +77,10 @@ func SetupVeth(netnsPath string, ifName string, containerID string) error {
 	})
 
 	if err != nil {
-		return fmt.Errorf("failed configuring inside container netns: %v", err)
+		return "", fmt.Errorf("failed configuring inside container netns: %v", err)
 	}
 
-	return nil
+	return hostVethName, nil
 }
 
 func DeleteVeth(hostVethName string) error {
