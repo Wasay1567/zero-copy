@@ -69,7 +69,7 @@ func SavePodCIDRToFile(podCIDR, filePath string) error {
 		Name:        "zero-copy-ebpf-cni",
 		Plugins: []plugins{
 			{
-				Type: "my-cni-plugin",
+				Type: "zero-copy",
 				IPAM: struct {
 					Type   string `json:"type"`
 					Subnet string `json:"subnet"`
