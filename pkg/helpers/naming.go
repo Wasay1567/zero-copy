@@ -1,34 +1,13 @@
 package helpers
 
-import (
-	"crypto/rand"
-)
+import "fmt"
 
-const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
-
-// GenerateRandomString produces a lightweight 8-character string
-func generateRandomString() (string, error) {
-	bytes := make([]byte, 8)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
+func BuildNameForHostVeth(containerID string) (string, error) {
+	if containerID == "" {
+		return "", fmt.Errorf("container ID is required")
 	}
-
-	for i, b := range bytes {
-		bytes[i] = charset[b%byte(len(charset))]
+	if len(containerID) > 8 {
+		containerID = containerID[:8]
 	}
-	return string(bytes), nil
-}
-
-func BuildNameForHostVeth(containerid string) (string, error) {
-	if len(containerid)<=8 {
-		r, err := generateRandomString()
-		if err != nil {
-			return "", err
-		}
-		hostVethName := "veth-" + r
-		return hostVethName, nil
-	}
-	
-	hostVethName := "veth-" + containerid[:8] // Unique host-side name
-	return hostVethName, nil
+	return "veth-" + containerID, nil
 }

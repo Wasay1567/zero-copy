@@ -58,10 +58,8 @@ func FetchPodCIDR(nodeName string, clientset *kubernetes.Clientset) (string, err
 }
 
 func SavePodCIDRToFile(podCIDR, filePath string) error {
-
-	if fileExists(filePath) {
-		fmt.Printf("File already exists, skipping write to file: %s\n", filePath)
-		return nil
+	if podCIDR == "" {
+		return fmt.Errorf("cannot write CNI config without a PodCIDR")
 	}
 
 	data := &CNICONFIG{
@@ -69,7 +67,7 @@ func SavePodCIDRToFile(podCIDR, filePath string) error {
 		Name:        "zero-copy-ebpf-cni",
 		Plugins: []plugins{
 			{
-				Type: "zero-copy",
+				Type: "zero-copy-cni",
 				IPAM: struct {
 					Type   string `json:"type"`
 					Subnet string `json:"subnet"`
