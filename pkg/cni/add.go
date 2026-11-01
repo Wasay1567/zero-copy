@@ -11,6 +11,7 @@ import (
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
 	current "github.com/containernetworking/cni/pkg/types/100"
+	"github.com/containernetworking/plugins/pkg/ns"
 	goipam "github.com/metal-stack/go-ipam"
 	"github.com/vishvananda/netlink"
 )
@@ -78,16 +79,23 @@ func Add(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
-	if err := network.AttachGwRoute(args.Netns, args.IfName, gateway); err != nil {
-		return err
-	}
-
 	hostLink, err := netlink.LinkByName(hostVeth)
 	if err != nil {
 		return fmt.Errorf("find host veth %q: %w", hostVeth, err)
 	}
+	podMAC, err := podInterfaceMAC(args.Netns, args.IfName)
+	if err != nil {
+		return err
+	}
+	if err := network.AttachGwRoute(args.Netns, args.IfName, gateway, hostLink.Attrs().HardwareAddr); err != nil {
+		return err
+	}
 	if err := ebpf.AddPodToFastPath(ipnet.IP.String(), hostLink.Attrs().Index); err != nil {
 		return fmt.Errorf("add pod to XDP fast path: %w", err)
+	}
+	if err := ebpf.AddPodMACToFastPath(ipnet.IP.String(), podMAC); err != nil {
+		_ = ebpf.DeletePodFromFastPath(ipnet.IP.String())
+		return fmt.Errorf("add pod MAC to XDP fast path: %w", err)
 	}
 	allocatedIP = false
 	cleanupVeth = false
@@ -100,4 +108,20 @@ func Add(args *skel.CmdArgs) error {
 		Routes:     []*types.Route{{Dst: *defaultRoute, GW: gateway}},
 	}
 	return types.PrintResult(result, conf.CNIVersion)
+}
+
+func podInterfaceMAC(netnsPath, ifName string) (net.HardwareAddr, error) {
+	var mac net.HardwareAddr
+	err := ns.WithNetNSPath(netnsPath, func(_ ns.NetNS) error {
+		link, err := netlink.LinkByName(ifName)
+		if err != nil {
+			return err
+		}
+		mac = append(net.HardwareAddr(nil), link.Attrs().HardwareAddr...)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read pod interface MAC: %w", err)
+	}
+	return mac, nil
 }

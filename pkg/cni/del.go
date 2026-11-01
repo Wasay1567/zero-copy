@@ -31,6 +31,9 @@ func Del(args *skel.CmdArgs) error {
 		return err
 	}
 	if found {
+		if err := ebpf.DeletePodMACFromFastPath(ip.String()); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 		if err := ebpf.DeletePodFromFastPath(ip.String()); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}

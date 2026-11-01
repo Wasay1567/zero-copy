@@ -43,14 +43,30 @@ func LoadAgent(objectPath string) (*Agent, error) {
 		return nil, fmt.Errorf("open pinned pod map: %w", err)
 	}
 
+	pinnedMACMap, macErr := cebpf.LoadPinnedMap(PodMACMapPath, nil)
+	if macErr != nil && !os.IsNotExist(macErr) {
+		if pinnedMap != nil {
+			pinnedMap.Close()
+		}
+		return nil, fmt.Errorf("open pinned pod MAC map: %w", macErr)
+	}
 	options := cebpf.CollectionOptions{}
 	if pinnedMap != nil {
 		options.MapReplacements = map[string]*cebpf.Map{"pod_interface_map": pinnedMap}
+	}
+	if pinnedMACMap != nil {
+		if options.MapReplacements == nil {
+			options.MapReplacements = make(map[string]*cebpf.Map)
+		}
+		options.MapReplacements["pod_mac_map"] = pinnedMACMap
 	}
 	collection, err := cebpf.NewCollectionWithOptions(spec, options)
 	if err != nil {
 		if pinnedMap != nil {
 			pinnedMap.Close()
+		}
+		if pinnedMACMap != nil {
+			pinnedMACMap.Close()
 		}
 		return nil, fmt.Errorf("load BPF collection: %w", err)
 	}
@@ -69,6 +85,17 @@ func LoadAgent(objectPath string) (*Agent, error) {
 		if err := mapToPin.Pin(PodInterfaceMapPath); err != nil {
 			collection.Close()
 			return nil, fmt.Errorf("pin pod interface map: %w", err)
+		}
+	}
+	if pinnedMACMap == nil {
+		mapToPin := collection.Maps["pod_mac_map"]
+		if mapToPin == nil {
+			collection.Close()
+			return nil, fmt.Errorf("BPF object does not contain pod_mac_map")
+		}
+		if err := mapToPin.Pin(PodMACMapPath); err != nil {
+			collection.Close()
+			return nil, fmt.Errorf("pin pod MAC map: %w", err)
 		}
 	}
 	if err := pinProgram(program); err != nil {

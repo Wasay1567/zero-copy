@@ -1,8 +1,10 @@
 package network
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"syscall"
 
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/vishvananda/netlink"
@@ -31,7 +33,7 @@ func buildDefaultRoute(linkIndex int, gateway net.IP) (*netlink.Route, error) {
 	}, nil
 }
 
-func AttachGwRoute(netnsPath string, ifName string, gateway net.IP) error {
+func AttachGwRoute(netnsPath string, ifName string, gateway net.IP, gatewayMAC net.HardwareAddr) error {
 	// 1. Get a reference to the container's network namespace
 	targetNS, err := ns.GetNS(netnsPath)
 	if err != nil {
@@ -50,7 +52,20 @@ func AttachGwRoute(netnsPath string, ifName string, gateway net.IP) error {
 			return err
 		}
 		if err := netlink.RouteAdd(gwRoute); err != nil {
-			return fmt.Errorf("failed to add default route inside pod: %v", err)
+			if !errors.Is(err, syscall.EEXIST) {
+				return fmt.Errorf("failed to add default route inside pod: %v", err)
+			}
+		}
+		if len(gatewayMAC) != 6 {
+			return fmt.Errorf("gateway MAC must contain 6 bytes")
+		}
+		if err := netlink.NeighSet(&netlink.Neigh{
+			LinkIndex:    containerLink.Attrs().Index,
+			IP:           gateway.To4(),
+			HardwareAddr: gatewayMAC,
+			State:        netlink.NUD_PERMANENT,
+		}); err != nil {
+			return fmt.Errorf("failed to add gateway neighbor inside pod: %v", err)
 		}
 		return nil
 	})

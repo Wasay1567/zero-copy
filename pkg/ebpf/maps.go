@@ -8,7 +8,10 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-const PodInterfaceMapPath = "/sys/fs/bpf/zero-copy/pod_interface_map"
+const (
+	PodInterfaceMapPath = "/sys/fs/bpf/zero-copy/pod_interface_map"
+	PodMACMapPath       = "/sys/fs/bpf/zero-copy/pod_mac_map"
+)
 
 func openPodInterfaceMap() (*ebpf.Map, error) {
 	podMap, err := ebpf.LoadPinnedMap(PodInterfaceMapPath, nil)
@@ -60,6 +63,40 @@ func DeletePodFromFastPath(podIPStr string) error {
 
 	if err := podMap.Delete(&ipKey); err != nil && err != ebpf.ErrKeyNotExist {
 		return fmt.Errorf("delete pod IP %q from fast-path map: %w", podIPStr, err)
+	}
+	return nil
+}
+
+func AddPodMACToFastPath(podIPStr string, mac net.HardwareAddr) error {
+	if len(mac) != 6 {
+		return fmt.Errorf("pod MAC must contain 6 bytes, got %d", len(mac))
+	}
+	ipKey, err := podIPKey(podIPStr)
+	if err != nil {
+		return err
+	}
+	macMap, err := ebpf.LoadPinnedMap(PodMACMapPath, nil)
+	if err != nil {
+		return fmt.Errorf("open pinned pod MAC map %q: %w", PodMACMapPath, err)
+	}
+	defer macMap.Close()
+	var value [6]byte
+	copy(value[:], mac)
+	return macMap.Put(&ipKey, &value)
+}
+
+func DeletePodMACFromFastPath(podIPStr string) error {
+	ipKey, err := podIPKey(podIPStr)
+	if err != nil {
+		return err
+	}
+	macMap, err := ebpf.LoadPinnedMap(PodMACMapPath, nil)
+	if err != nil {
+		return fmt.Errorf("open pinned pod MAC map %q: %w", PodMACMapPath, err)
+	}
+	defer macMap.Close()
+	if err := macMap.Delete(&ipKey); err != nil && err != ebpf.ErrKeyNotExist {
+		return fmt.Errorf("delete pod IP %q from MAC map: %w", podIPStr, err)
 	}
 	return nil
 }
