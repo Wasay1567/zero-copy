@@ -13,6 +13,13 @@ struct {
     __uint(max_entries, 65535);
 } pod_interface_map SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u32);
+    __type(value, __u8[6]);
+    __uint(max_entries, 65535);
+} pod_mac_map SEC(".maps");
+
 SEC("xdp")
 int xdp_pass(struct xdp_md* ctx) {
     void *data_end = (void *)(long)ctx->data_end;
@@ -51,6 +58,10 @@ int xdp_pass(struct xdp_md* ctx) {
 
     if (!ifindex)
         return XDP_PASS;
+
+    __u8 *dst_mac = bpf_map_lookup_elem(&pod_mac_map, &dst_ip);
+    if (dst_mac)
+        __builtin_memcpy(eth->h_dest, dst_mac, ETH_ALEN);
 
     return bpf_redirect(*ifindex, 0);
     

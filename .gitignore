@@ -1,0 +1,4 @@
+.env
+vendor
+bin/
+ebpf/fast-path.o

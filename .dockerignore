@@ -1,0 +1,8 @@
+.git
+.env
+vendor
+bin
+*.o
+Dockerfile*
+README.md
+deploy
