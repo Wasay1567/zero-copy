@@ -3,6 +3,7 @@ package network
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Wasay1567/zero-copy/pkg/helpers"
 	"github.com/containernetworking/plugins/pkg/ns"
@@ -30,19 +31,27 @@ func SetupVeth(netnsPath string, ifName string, containerID string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("failed to build host veth name: %v", err)
 	}
+	peerName := "peer-" + strings.TrimPrefix(hostVethName, "veth-")
 
-	// 3. Define the veth pair configuration
+	// Create the peer with a temporary host-namespace name. The target
+	// namespace owns the final interface name, usually "eth0".
 	vethLink := &netlink.Veth{
 		LinkAttrs: netlink.LinkAttrs{
 			Name: hostVethName,
 		},
-		PeerName: ifName, // This will be renamed to "eth0" inside the container
+		PeerName: peerName,
 	}
 
 	// 4. Create the veth pair on the host
 	if err := netlink.LinkAdd(vethLink); err != nil {
 		return "", fmt.Errorf("failed to create veth pair: %v", err)
 	}
+	cleanupVeth := true
+	defer func() {
+		if cleanupVeth {
+			_ = DeleteVeth(hostVethName)
+		}
+	}()
 
 	// Bring the host-side veth interface UP (It sits loose in root namespace)
 	if err := netlink.LinkSetUp(vethLink); err != nil {
@@ -50,7 +59,7 @@ func SetupVeth(netnsPath string, ifName string, containerID string) (string, err
 	}
 
 	// 5. Look up the container-side peer interface we just made
-	peerLink, err := netlink.LinkByName(ifName)
+	peerLink, err := netlink.LinkByName(peerName)
 	if err != nil {
 		return "", fmt.Errorf("failed to find peer veth: %v", err)
 	}
@@ -63,9 +72,16 @@ func SetupVeth(netnsPath string, ifName string, containerID string) (string, err
 	// 7. Execute code *inside* the container's namespace to finalize configuration
 	err = targetNS.Do(func(hostNS ns.NetNS) error {
 		// Fetch the interface again, now that we are context-shifted inside the pod ns
-		containerLink, err := netlink.LinkByName(ifName)
+		containerLink, err := netlink.LinkByName(peerName)
 		if err != nil {
 			return fmt.Errorf("failed to find interface inside container: %v", err)
+		}
+		if err := netlink.LinkSetName(containerLink, ifName); err != nil {
+			return fmt.Errorf("failed to rename interface to %q: %v", ifName, err)
+		}
+		containerLink, err = netlink.LinkByName(ifName)
+		if err != nil {
+			return fmt.Errorf("failed to find renamed interface %q: %v", ifName, err)
 		}
 
 		// Bring the interface UP inside the pod
@@ -80,6 +96,7 @@ func SetupVeth(netnsPath string, ifName string, containerID string) (string, err
 		return "", fmt.Errorf("failed configuring inside container netns: %v", err)
 	}
 
+	cleanupVeth = false
 	return hostVethName, nil
 }
 
