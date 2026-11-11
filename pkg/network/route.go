@@ -30,6 +30,7 @@ func buildDefaultRoute(linkIndex int, gateway net.IP) (*netlink.Route, error) {
 		LinkIndex: linkIndex,
 		Dst:       defaultRoute,
 		Gw:        gateway.To4(),
+		Flags:     int(netlink.FLAG_ONLINK),
 	}, nil
 }
 

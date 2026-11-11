@@ -193,7 +193,9 @@ func (i *IPAM) AllocateIP(ctx context.Context, containerID, netnsPath, ifName st
 		acquired = true
 	}
 
-	ipnet := &net.IPNet{IP: net.IP(addr.AsSlice()), Mask: i.ipNet.Mask}
+	// Use a host route in the pod namespace. The pod gateway is reached via a
+	// permanent neighbour entry, and the node-local datapath handles the next hop.
+	ipnet := &net.IPNet{IP: net.IP(addr.AsSlice()), Mask: net.CIDRMask(32, 32)}
 
 	err = ns.WithNetNSPath(netnsPath, func(ns.NetNS) error {
 		link, err := netlink.LinkByName(ifName)

@@ -38,17 +38,30 @@ func LoadAgent(objectPath string) (*Agent, error) {
 	}
 
 	var pinnedMap *cebpf.Map
-	pinnedMap, err = cebpf.LoadPinnedMap(PodInterfaceMapPath, nil)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("open pinned pod map: %w", err)
+	if _, statErr := os.Stat(PodInterfaceMapPath); statErr == nil {
+		pinnedMap, err = cebpf.LoadPinnedMap(PodInterfaceMapPath, nil)
+		if err != nil {
+			return nil, fmt.Errorf("open pinned pod map: %w", err)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("check pinned pod map: %w", statErr)
 	}
 
-	pinnedMACMap, macErr := cebpf.LoadPinnedMap(PodMACMapPath, nil)
-	if macErr != nil && !os.IsNotExist(macErr) {
+	var pinnedMACMap *cebpf.Map
+	var macErr error
+	if _, statErr := os.Stat(PodMACMapPath); statErr == nil {
+		pinnedMACMap, macErr = cebpf.LoadPinnedMap(PodMACMapPath, nil)
+		if macErr != nil {
+			if pinnedMap != nil {
+				pinnedMap.Close()
+			}
+			return nil, fmt.Errorf("open pinned pod MAC map: %w", macErr)
+		}
+	} else if !os.IsNotExist(statErr) {
 		if pinnedMap != nil {
 			pinnedMap.Close()
 		}
-		return nil, fmt.Errorf("open pinned pod MAC map: %w", macErr)
+		return nil, fmt.Errorf("check pinned pod MAC map: %w", statErr)
 	}
 	options := cebpf.CollectionOptions{}
 	if pinnedMap != nil {
