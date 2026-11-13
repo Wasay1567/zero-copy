@@ -14,6 +14,7 @@ type BGP struct {
 	Port   int
 }
 
+// InitBgp creates and starts a GoBGP server using the daemon's local ASN and router ID.
 func InitBgp() *BGP {
 	s := server.NewBgpServer()
 	go s.Serve()

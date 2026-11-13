@@ -7,6 +7,7 @@ import (
 	"github.com/osrg/gobgp/v4/api"
 )
 
+// AddNeighbor configures a GoBGP peer for a remote node and labels it with the node name.
 func (b *BGP) AddNeighbor(ctx context.Context, podCIDR string, nodeName string) error {
 	// neighbor configuration
 	n := &api.Peer{
@@ -22,6 +23,7 @@ func (b *BGP) AddNeighbor(ctx context.Context, podCIDR string, nodeName string) 
 	return nil
 }
 
+// RemoveNeighbor deletes a GoBGP peer identified by its address.
 func (b *BGP) RemoveNeighbor(ctx context.Context, podCIDR string) error {
 	// neighbor configuration
 	n := &api.Peer{

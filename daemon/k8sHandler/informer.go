@@ -9,7 +9,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-// NewNodeHandler returns event handlers closure-bound to the provided BGP server instance
+// NewNodeHandler returns event handlers that add and remove Kubernetes node BGP peers.
 func NewNodeHandler(g *bgpHandler.BGP) cache.ResourceEventHandler {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {

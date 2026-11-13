@@ -1,42 +1,36 @@
 package bgpHandler
 
-// import (
-// 	"context"
-// 	"path"
+import (
+	"net/netip"
 
-// 	api "github.com/osrg/gobgp/v3/api"
-// 	"github.com/osrg/gobgp/v3/pkg/apiutil"
-// 	"google.golang.org/protobuf/types/known/anypb"
-// )
+	"github.com/osrg/gobgp/v4/pkg/apiutil"
+	"github.com/osrg/gobgp/v4/pkg/packet/bgp"
+)
 
-// func (b *BGP) Advertise(prefixLen uint32, podCIDR, nodeIP string) {
-// 	// 1. Define NLRI (Network Layer Reachability Information) for your local podCIDR
-// 	nlri, _ := anypb.New(&api.IPAddressPrefix{
-// 		PrefixLen: prefixLen,
-// 		Prefix:    podCIDR, // Local Node podCIDR
-// 	})
+// Advertise publishes a pod CIDR through GoBGP with the node IP as its next hop.
+func (b *BGP) Advertise(prefixLen uint32, podCIDR, nodeIP string) {
+	// 1. Define NLRI using the packet bgp helper
+	prefix := netip.MustParsePrefix(podCIDR)
+	nlri, _ := bgp.NewIPAddrPrefix(prefix)
 
-// 	// 2. Set NextHop to local physical Node IP
-// 	nextHop, _ := anypb.New(&api.NextHopAttribute{
-// 		NextHop: nodeIP, // Local Node IP
-// 	})
+	// 2. Set Origin and NextHop attributes
+	origin := bgp.NewPathAttributeOrigin(0) // IGP
+	nodeAddr := netip.MustParseAddr(nodeIP)
+	nextHop, _ := bgp.NewPathAttributeNextHop(nodeAddr)
 
-// 	origin, _ := anypb.New(&api.OriginAttribute{
-// 		Origin: 0, // IGP
-// 	})
-
-// 	path := &api.Path{
-// 		Family: &api.Family{
-// 			Afi:  api.Family_AFI_IP,
-// 			Safi: api.Family_SAFI_UNICAST,
-// 		},
-// 		Nlri:   nlri,
-// 		Pattrs: []*anypb.Any{origin, nextHop},
-// 	}
-
-// 	// 3. Add Path to GoBGP
-// 	_, _ = b.Server.AddPath(context.Background(), apiutil.AddPathRequest{
-// 		TableType: api.TableType_GLOBAL,
-// 		Path: path,
-// 	})
-// }
+	// 3. Add Path to GoBGP using apiutil.AddPathRequest (passed by value, no context)
+	_, err := b.Server.AddPath(apiutil.AddPathRequest{
+		Paths: []*apiutil.Path{
+			{
+				Nlri: nlri,
+				Attrs: []bgp.PathAttributeInterface{
+					origin,
+					nextHop,
+				},
+			},
+		},
+	})
+	if err != nil {
+		// Handle advertisement error
+	}
+}

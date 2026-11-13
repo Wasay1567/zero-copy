@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+// main loads the eBPF agent, configures the local CNI state, and optionally starts the BGP controller.
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
@@ -88,6 +89,8 @@ func main() {
 			return
 		}
 		k8sHandler.NewNodeHandler(g)
+		go g.Monitor(ctx)
+
 	}
 
 	// block the main go routine from exiting

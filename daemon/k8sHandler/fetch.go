@@ -28,6 +28,7 @@ type CNICONFIG struct {
 // Posted by ZuBsPaCe
 // Retrieved 2026-10-03, License - CC BY-SA 4.0
 
+// fileExists reports whether filename exists and is a regular file.
 func fileExists(filename string) bool {
 	info, err := os.Stat(filename)
 	if os.IsNotExist(err) {
@@ -36,6 +37,7 @@ func fileExists(filename string) bool {
 	return !info.IsDir()
 }
 
+// FetchPodCIDR retrieves the PodCIDR assigned to the named Kubernetes node.
 func FetchPodCIDR(nodeName string, clientset *kubernetes.Clientset) (string, error) {
 
 	// 1. Query the specific Node resource from the API Server
@@ -57,6 +59,7 @@ func FetchPodCIDR(nodeName string, clientset *kubernetes.Clientset) (string, err
 	return podCIDR, nil
 }
 
+// SavePodCIDRToFile writes a host-local CNI configuration scoped to the node PodCIDR.
 func SavePodCIDRToFile(podCIDR, filePath string) error {
 	if podCIDR == "" {
 		return fmt.Errorf("cannot write CNI config without a PodCIDR")
