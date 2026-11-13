@@ -83,13 +83,18 @@ func main() {
 		factory := informers.NewSharedInformerFactoryWithOptions(clientset, 10*time.Second)
 		nodeInformer := factory.Core().V1().Nodes().Informer()
 		defer runtime.HandleCrash()
+
+		eventHandler := k8sHandler.NewNodeHandler(g)
+		// Registers event handler to create and remove bgp peers on node events
+		nodeInformer.AddEventHandler(eventHandler)
+
 		go factory.Start(stopper)
+
 		if !cache.WaitForCacheSync(stopper, nodeInformer.HasSynced) {
 			runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
 			return
 		}
-		eventHandler := k8sHandler.NewNodeHandler(g)
-		nodeInformer.AddEventHandler(eventHandler)
+
 		defer g.Server.Stop()
 	}
 
