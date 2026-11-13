@@ -88,8 +88,8 @@ func main() {
 			runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
 			return
 		}
-		k8sHandler.NewNodeHandler(g)
-		go g.Monitor(ctx)
+		eventHandler := k8sHandler.NewNodeHandler(g)
+		nodeInformer.AddEventHandler(eventHandler)
 		defer g.Server.Stop()
 	}
 
