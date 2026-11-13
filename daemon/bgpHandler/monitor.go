@@ -24,6 +24,8 @@ func getAttr[T bgp.PathAttributeInterface](attrs []bgp.PathAttributeInterface) (
 	return zero, false
 }
 
+// Reference: https://github.com/osrg/gobgp/blob/master/docs/sources/lib.md
+
 // Monitor watches GoBGP path updates and synchronizes them with host routes.
 func (b *BGP) Monitor(ctx context.Context) error {
 	if err := b.Server.WatchEvent(ctx, server.WatchEventMessageCallbacks{

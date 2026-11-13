@@ -7,6 +7,8 @@ import (
 	"github.com/osrg/gobgp/v4/pkg/packet/bgp"
 )
 
+// Reference: https://github.com/osrg/gobgp/blob/master/docs/sources/lib.md
+
 // Advertise publishes a pod CIDR through GoBGP with the node IP as its next hop.
 func (b *BGP) Advertise(prefixLen uint32, podCIDR, nodeIP string) {
 	// 1. Define NLRI using the packet bgp helper

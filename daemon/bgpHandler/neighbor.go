@@ -7,6 +7,8 @@ import (
 	"github.com/osrg/gobgp/v4/api"
 )
 
+// Reference: https://github.com/osrg/gobgp/blob/master/docs/sources/lib.md
+
 // AddNeighbor configures a GoBGP peer for a remote node and labels it with the node name.
 func (b *BGP) AddNeighbor(ctx context.Context, podCIDR string, nodeName string) error {
 	// neighbor configuration
