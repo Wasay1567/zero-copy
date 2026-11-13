@@ -74,12 +74,22 @@ func main() {
 	}
 
 	if os.Getenv("ENABLE_BGP") == "true" {
-		g := bgpHandler.InitBgp()
+		nodeIP, err := k8sHandler.FetchNodeInternalIP(nodeName, clientset)
+		if err != nil {
+			fmt.Printf("failed to fetch local node IP: %v\n", err)
+			os.Exit(1)
+		}
+
+		g := bgpHandler.InitBgp(nodeIP)
 		if g == nil {
 			os.Exit(1)
 		}
 		stopper := make(chan struct{})
 		defer close(stopper)
+		if err := g.Advertise(cidr, nodeIP); err != nil {
+			fmt.Printf("failed to advertise local PodCIDR %s: %v\n", cidr, err)
+			os.Exit(1)
+		}
 		factory := informers.NewSharedInformerFactoryWithOptions(clientset, 10*time.Second)
 		nodeInformer := factory.Core().V1().Nodes().Informer()
 		defer runtime.HandleCrash()

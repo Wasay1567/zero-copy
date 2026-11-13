@@ -15,14 +15,14 @@ type BGP struct {
 }
 
 // InitBgp creates and starts a GoBGP server using the daemon's local ASN and router ID.
-func InitBgp() *BGP {
+func InitBgp(routerID string) *BGP {
 	s := server.NewBgpServer()
 	go s.Serve()
 
 	if err := s.StartBgp(context.Background(), &api.StartBgpRequest{
 		Global: &api.Global{
 			Asn:        65001,
-			RouterId:   "10.0.0.1",
+			RouterId:   routerID,
 			ListenPort: 179,
 		},
 	}); err != nil {

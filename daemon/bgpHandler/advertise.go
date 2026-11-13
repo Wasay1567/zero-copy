@@ -10,18 +10,25 @@ import (
 // Reference: https://github.com/osrg/gobgp/blob/master/docs/sources/lib.md
 
 // Advertise publishes a pod CIDR through GoBGP with the node IP as its next hop.
-func (b *BGP) Advertise(prefixLen uint32, podCIDR, nodeIP string) {
+func (b *BGP) Advertise(podCIDR, nodeIP string) error {
 	// 1. Define NLRI using the packet bgp helper
 	prefix := netip.MustParsePrefix(podCIDR)
-	nlri, _ := bgp.NewIPAddrPrefix(prefix)
+	nlri, err := bgp.NewIPAddrPrefix(prefix)
+	if err != nil {
+		return err
+	}
 
 	// 2. Set Origin and NextHop attributes
 	origin := bgp.NewPathAttributeOrigin(0) // IGP
 	nodeAddr := netip.MustParseAddr(nodeIP)
-	nextHop, _ := bgp.NewPathAttributeNextHop(nodeAddr)
+	nextHop, err := bgp.NewPathAttributeNextHop(nodeAddr)
+	if err != nil {
+		return err
+	}
+
 
 	// 3. Add Path to GoBGP using apiutil.AddPathRequest (passed by value, no context)
-	_, err := b.Server.AddPath(apiutil.AddPathRequest{
+	_, err = b.Server.AddPath(apiutil.AddPathRequest{
 		Paths: []*apiutil.Path{
 			{
 				Nlri: nlri,
@@ -32,7 +39,5 @@ func (b *BGP) Advertise(prefixLen uint32, podCIDR, nodeIP string) {
 			},
 		},
 	})
-	if err != nil {
-		// Handle advertisement error
-	}
+	return err
 }

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -57,6 +59,26 @@ func FetchPodCIDR(nodeName string, clientset *kubernetes.Clientset) (string, err
 	}
 
 	return podCIDR, nil
+}
+
+// FetchNodeInternalIP retrieves the node's IPv4 InternalIP for BGP identity and peering.
+func FetchNodeInternalIP(nodeName string, clientset *kubernetes.Clientset) (string, error) {
+	node, err := clientset.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get node %s: %w", nodeName, err)
+	}
+
+	for _, address := range node.Status.Addresses {
+		if address.Type != corev1.NodeInternalIP {
+			continue
+		}
+		ip := net.ParseIP(address.Address)
+		if ip != nil && ip.To4() != nil {
+			return address.Address, nil
+		}
+	}
+
+	return "", fmt.Errorf("node %s has no IPv4 InternalIP", nodeName)
 }
 
 // SavePodCIDRToFile writes a host-local CNI configuration scoped to the node PodCIDR.
