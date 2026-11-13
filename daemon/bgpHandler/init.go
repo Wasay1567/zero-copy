@@ -18,7 +18,6 @@ type BGP struct {
 func InitBgp() *BGP {
 	s := server.NewBgpServer()
 	go s.Serve()
-	defer s.Stop()
 
 	if err := s.StartBgp(context.Background(), &api.StartBgpRequest{
 		Global: &api.Global{

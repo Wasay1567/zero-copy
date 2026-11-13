@@ -90,7 +90,7 @@ func main() {
 		}
 		k8sHandler.NewNodeHandler(g)
 		go g.Monitor(ctx)
-
+		defer g.Server.Stop()
 	}
 
 	// block the main go routine from exiting
