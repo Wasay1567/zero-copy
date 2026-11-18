@@ -94,7 +94,7 @@ func main() {
 		nodeInformer := factory.Core().V1().Nodes().Informer()
 		defer runtime.HandleCrash()
 
-		eventHandler := k8sHandler.NewNodeHandler(g)
+		eventHandler := k8sHandler.NewNodeHandler(g, nodeName)
 		// Registers event handler to create and remove bgp peers on node events
 		nodeInformer.AddEventHandler(eventHandler)
 

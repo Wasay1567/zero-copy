@@ -11,11 +11,14 @@ import (
 )
 
 // NewNodeHandler returns event handlers that add and remove Kubernetes node BGP peers.
-func NewNodeHandler(g *bgpHandler.BGP) cache.ResourceEventHandler {
+func NewNodeHandler(g *bgpHandler.BGP, localNodeName string) cache.ResourceEventHandler {
 	return cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			ctx := context.Background()
-			node := obj.(*corev1.Node)
+			node, ok := nodeFromEvent(obj)
+			if !ok || node.Name == localNodeName {
+				return
+			}
 			nodeIP := getReachableIPAddress(node)
 			if nodeIP == "" {
 				return
@@ -24,11 +27,16 @@ func NewNodeHandler(g *bgpHandler.BGP) cache.ResourceEventHandler {
 			fmt.Printf("[Add] Node: %s, with reachable IP %s\n", name, nodeIP)
 
 			// Call your BGP methods using 'g'
-			g.AddNeighbor(ctx, nodeIP, name)
+			if err := g.AddNeighbor(ctx, nodeIP, name); err != nil {
+				fmt.Println(err)
+			}
 		},
 		DeleteFunc: func(obj interface{}) {
 			ctx := context.Background()
-			node := obj.(*corev1.Node)
+			node, ok := nodeFromEvent(obj)
+			if !ok || node.Name == localNodeName {
+				return
+			}
 			name := node.Name
 			nodeIP := getReachableIPAddress(node)
 			if nodeIP == "" {
@@ -36,15 +44,57 @@ func NewNodeHandler(g *bgpHandler.BGP) cache.ResourceEventHandler {
 			}
 			fmt.Printf("[Delete] Node: %s\n", name)
 
+			if err := g.RemoveNeighbor(ctx, nodeIP); err != nil {
+				fmt.Println(err)
+			}
+		},
+		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
+			ctx := context.Background()
+			oldnode, oldOK := nodeFromEvent(oldObj)
+			newnode, newOK := nodeFromEvent(newObj)
+			if !oldOK || !newOK || oldnode.Name == localNodeName || newnode.Name == localNodeName {
+				return
+			}
 
-			g.RemoveNeighbor(ctx, nodeIP)
+			oldIP := getReachableIPAddress(oldnode)
+			newIP := getReachableIPAddress(newnode)
+
+			if oldIP == newIP {
+				return
+			}
+			if oldIP != "" {
+				if err := g.RemoveNeighbor(ctx, oldIP); err != nil {
+					fmt.Printf("failed to remove old peer for node %s: %v\n", newnode.Name, err)
+					return
+				}
+			}
+			if newIP != "" {
+				if err := g.AddNeighbor(ctx, newIP, newnode.Name); err != nil {
+					fmt.Println(err)
+				}
+			}
 		},
 	}
 }
 
+// nodeFromEvent extracts a Node from a normal informer event or delete tombstone.
+func nodeFromEvent(obj interface{}) (*corev1.Node, bool) {
+	switch event := obj.(type) {
+	case *corev1.Node:
+		return event, true
+	case cache.DeletedFinalStateUnknown:
+		node, ok := event.Obj.(*corev1.Node)
+		return node, ok
+	case *cache.DeletedFinalStateUnknown:
+		node, ok := event.Obj.(*corev1.Node)
+		return node, ok
+	default:
+		return nil, false
+	}
+}
 
 func getReachableIPAddress(node *corev1.Node) string {
-	var internalIP string 
+	var internalIP string
 
 	for _, addr := range node.Status.Addresses {
 		ip := net.ParseIP(addr.Address)
